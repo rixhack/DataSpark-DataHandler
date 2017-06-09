@@ -10,6 +10,7 @@ import org.jgroups.Message;
 import org.jgroups.ReceiverAdapter;
 
 import twitter4j.Query;
+import twitter4j.Query.ResultType;
 import twitter4j.QueryResult;
 import twitter4j.Status;
 import twitter4j.Twitter;
@@ -24,6 +25,7 @@ public class TwitterDataHandler extends ReceiverAdapter {
 	long lastId; // The id of the newest tweet received in the last response from the Twitter API.
 	Calendar fDate; // The first time, tweets created from this date will be retrieved. Default to yesterday.
 	Query tQuery; // Query object
+	// QueryResult qr; // The result of the query.
 	List<Status> tweets; // List of returned tweets.
 	int requesting = 0; // 0 if the process is not requesting data yet. 1 if it is.
 
@@ -117,59 +119,195 @@ public class TwitterDataHandler extends ReceiverAdapter {
 	}
 	
 	private int getData() throws Exception {
+		
 		System.out.println("Since: "+ tQuery.getSince());
 		System.out.println("Query: "+ tQuery.getQuery());
 		System.out.println("Time window: " + timeWindow);
-		QueryResult qr = twitter.search(tQuery); // Get the tweets matching the query.
-		List<Status> newTweets = new ArrayList<Status>();
-		for(Status s : qr.getTweets()){
-			// If the the tweet is not a retweet and is inside the time window, add it to the new tweets.
-			if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
-				newTweets.add(s);
-			}
-		}
-		tweets.addAll(0, newTweets); // Add the new tweets to the list of current tweets.
-		if (!tweets.isEmpty()){
-			// Set the sinceId parameter to the id of the latest tweet in order to receive only newer tweets in the next query.
-			tQuery.setSinceId(tweets.get(0).getId());
-		}
-		// While there are more pages, retrieve them until a tweet outside the time window is found.
-		int exit = 0;
-		while (qr.hasNext() && exit == 0){
-			Query q2 = qr.nextQuery();
-			qr = twitter.search(q2); // Retrieve next page of tweets.
-			List<Status> newTweets2 = new ArrayList<Status>();
-			for(Status s: qr.getTweets()){
-				if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
-					newTweets2.add(s);
-				}
-				else if (!s.isRetweet()){
-					System.out.println("Exiting.");
-					exit = 1;
-					break;
-				}
-			}
-			// Add the new tweets at the end of the list (because they are older than the previous ones).
-			tweets.addAll(newTweets.size(), newTweets2);
+		
+		if (tweets.isEmpty()){
+			getAllTweets();
+		} else {
+			getNewTweets();
 		}
 		
-		// Delete tweets outside the time window.
-		for (int i = tweets.size()-1; i >= 0; i--){
-			Date createdAt = tweets.get(i).getCreatedAt();
-			if (System.currentTimeMillis() - createdAt.getTime() > timeWindow* 60000){
-				System.out.println("Deleted: https://twitter.com/statuses/" + tweets.get(i).getId());
-				tweets.remove(i);
-			}
-			else {
-				break;
-			}
-		}
+		//qr = twitter.search(tQuery); // Get the tweets matching the query.
+		//List<Status> newTweets = new ArrayList<Status>();
+		
+//		for(Status s : qr.getTweets()){
+//			// If the the tweet is not a retweet and is inside the time window, add it to the new tweets.
+//			if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
+//				newTweets.add(s);
+//			}
+//		}
+//		tweets.addAll(0, newTweets); // Add the new tweets to the list of current tweets.
+//		if (!tweets.isEmpty()){
+//			// Set the sinceId parameter to the id of the latest tweet in order to receive only newer tweets in the next query.
+//			tQuery.setSinceId(tweets.get(0).getId());
+//		}
+		// While there are more pages, retrieve them until a tweet outside the time window is found.
+		// System.out.println("Size of one page: "+tweets.size());
+//		if(qr.hasNext()){
+//			retrieveNextPages();
+//		}
+		// System.out.println("Size of all pages: "+tweets.size());
+		
+		deleteOldTweets(); // Delete tweets outside the time window.
+		
 		if (!tweets.isEmpty()){
 			System.out.println("First one: https://twitter.com/statuses/" + tweets.get(0).getId());
 			System.out.println("Last one: https://twitter.com/statuses/" + tweets.get(tweets.size()-1).getId());
 		}
 		System.out.println("Size: "+tweets.size());
 		return tweets.size();
+	}
+	
+	private void getAllTweets() throws Exception {
+		int done = 0;
+		QueryResult qra = twitter.search(tQuery);
+		List<Status> firstPageTweets = new ArrayList<Status>();
+		for (Status s: qra.getTweets()){
+			if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
+				firstPageTweets.add(s);
+			} else if (!s.isRetweet()){
+				done = 1;
+				break;
+			}
+		}
+		tweets.addAll(tweets.size(), firstPageTweets);
+		while (done == 0){
+			while (qra.hasNext() && done == 0){
+				Query pageQuery = qra.nextQuery();
+				qra = twitter.search(pageQuery);
+				List<Status> pageTweets = new ArrayList<Status>();
+				for (Status s: qra.getTweets()){
+					if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
+						pageTweets.add(s);
+					} else if (!s.isRetweet()){
+						done = 1;
+						break;
+					}
+				}
+				tweets.addAll(tweets.size(), pageTweets);
+			}
+			if (done == 0){
+				System.out.println("Current size: "+tweets.size());
+				System.out.println("Current last: "+tweets.get(tweets.size()-1).getCreatedAt());
+				System.out.println("Be persistent!");
+				Query newQuery = new Query();
+				newQuery.setQuery(query);
+				newQuery.setCount(100);
+				newQuery.setResultType(ResultType.recent);
+				newQuery.setSince(tQuery.getSince());
+				newQuery.setMaxId(tweets.get(tweets.size()-1).getId()-1);
+				QueryResult qrn2 = twitter.search(newQuery);
+				List<Status> nextPageTweets = new ArrayList<Status>();
+				for (Status s: qrn2.getTweets()){
+					// If the the tweet is not a retweet and is inside the time window, add it to the new tweets.
+					if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
+						nextPageTweets.add(s);
+					} else if (!s.isRetweet()){
+						System.out.println("Exiting2 at: https://twitter.com/statuses/" + s.getId());
+						done = 1;
+						break;
+					}
+				}
+				tweets.addAll(tweets.size(), nextPageTweets);
+			}
+		}
+	}
+	
+	private void getNewTweets() throws Exception {
+		int done = 0;
+		tQuery.setSinceId(tweets.get(0).getId());
+		System.out.println("Getting tweets newer than: "+tweets.get(0).getCreatedAt());
+		QueryResult qrn = twitter.search(tQuery);
+		List<Status> firstPageTweets = new ArrayList<Status>();
+		for (Status s: qrn.getTweets()){
+			if (!s.isRetweet() && s.getCreatedAt().getTime() > tweets.get(0).getCreatedAt().getTime()){
+				firstPageTweets.add(s);
+			} else if (!s.isRetweet()){
+				done = 1;
+				break;
+			}
+		}
+		tweets.addAll(0,firstPageTweets);
+		int index = firstPageTweets.size();
+		while (qrn.hasNext() && done == 0){
+			Query pageQuery = qrn.nextQuery();
+			qrn = twitter.search(pageQuery);
+			List<Status> pageTweets = new ArrayList<Status>();
+			for (Status s: qrn.getTweets()){
+				System.out.println(s.getCreatedAt());
+				if (!s.isRetweet() && s.getCreatedAt().getTime() > tweets.get(0).getCreatedAt().getTime()){
+					pageTweets.add(s);
+				} else if (!s.isRetweet()){
+					System.out.println("Exiting at: https://twitter.com/statuses/" + s.getId());
+					done = 1;
+					break;
+				}
+			}
+			tweets.addAll(index, pageTweets);
+			index = index+pageTweets.size();
+		}
+	}
+	
+//	private void retrieveNextPages() throws Exception {
+//		int exit = 0;
+//		while (exit == 0){
+//			while (qr.hasNext() && exit == 0){
+//				Query pageQuery = qr.nextQuery();
+//				qr = twitter.search(pageQuery); // Retrieve the next page of tweets.
+//				List<Status> pageTweets = new ArrayList<Status>();
+//				for(Status s: qr.getTweets()){
+//					//System.out.println(s.getCreatedAt());
+//					if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
+//						pageTweets.add(s);
+//					} else if (!s.isRetweet()){
+//						System.out.println("Exiting at: https://twitter.com/statuses/" + s.getId());
+//						exit = 1;
+//						break;
+//					}
+//				}
+//				// Add the new tweets at the end of the list (because they are older than the previous ones).
+//				tweets.addAll(tweets.size(), pageTweets);
+//			}
+//			if (exit == 0){
+//				System.out.println("Current size: "+tweets.size());
+//				System.out.println("Current last: "+tweets.get(tweets.size()-1).getCreatedAt());
+//				System.out.println("Be persistent!");
+//				Query newQuery = new Query();
+//				newQuery.setQuery(query);
+//				newQuery.setCount(100);
+//				newQuery.setResultType(ResultType.recent);
+//				newQuery.setSince(tQuery.getSince());
+//				newQuery.setMaxId(tweets.get(tweets.size()-1).getId()-1);
+//				qr = twitter.search(newQuery);
+//				List<Status> firstPageTweets = new ArrayList<Status>();
+//				for(Status s : qr.getTweets()){
+//					// If the the tweet is not a retweet and is inside the time window, add it to the new tweets.
+//					if (!s.isRetweet() && System.currentTimeMillis() - s.getCreatedAt().getTime() <= timeWindow * 60000){
+//						firstPageTweets.add(s);
+//					} else if (!s.isRetweet()){
+//						System.out.println("Exiting2 at: https://twitter.com/statuses/" + s.getId());
+//						exit = 1;
+//						break;
+//					}
+//				}
+//				tweets.addAll(tweets.size(), firstPageTweets);
+//			}
+//		}
+//	}
+	
+	private void deleteOldTweets() {
+		for (int i = tweets.size()-1; i >= 0; i--) {
+			Date createdAt = tweets.get(i).getCreatedAt();
+			if (System.currentTimeMillis() - createdAt.getTime() > timeWindow * 60000){
+				System.out.println("Deleted: https://twitter.com/statuses/" + tweets.get(i).getId());
+				tweets.remove(i);
+			} else {
+				break;
+			}
+		}
 	}
 	
 	private void setDate() {
