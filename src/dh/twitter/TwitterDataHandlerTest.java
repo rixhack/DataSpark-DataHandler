@@ -17,7 +17,7 @@ import twitter4j.Status;
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class TwitterDataHandlerTest extends ReceiverAdapter {
 	private static ThreadLocal<TwitterDataHandler> tdh = new ThreadLocal<TwitterDataHandler>(); // = new TwitterDataHandler("");
-	int margin = 20000;
+	int margin = 5000;
 	JChannel channel;
 	
 	@BeforeClass
@@ -33,9 +33,13 @@ public class TwitterDataHandlerTest extends ReceiverAdapter {
 		channel.setDiscardOwnMessages(true);
 	}
 
+	@Test
+	public void test1JChannel() {
+		assertEquals("TwitterDataCluster", tdh.get().channel.getClusterName());
+	}
 	
 	@Test
-	public void test1Default() {
+	public void test2Default() {
 		assertEquals("", tdh.get().query);
 		assertEquals(5, tdh.get().timeWindow);
 		assertEquals(0, tdh.get().pValue);
@@ -43,11 +47,6 @@ public class TwitterDataHandlerTest extends ReceiverAdapter {
 		assertEquals("", tdh.get().tQuery.getQuery());
 		assertEquals(100, tdh.get().tQuery.getCount());
 		assertTrue(tdh.get().tweets.isEmpty());
-	}
-	
-	@Test
-	public void test1JChannel() {
-		assertEquals("TwitterDataCluster", tdh.get().channel.getClusterName());
 	}
 	
 	@Test
@@ -64,16 +63,10 @@ public class TwitterDataHandlerTest extends ReceiverAdapter {
 	
 	@Test
 	public void test4TweetsContainQuery() throws InterruptedException {
-		// assertTrue("Eindhoven".contains("eindhoven"));
-		System.out.println("Tweets size: " + tdh.get().tweets.size());
 		for (Status s: tdh.get().tweets){
-			System.out.println("https://twitter.com/statuses/"+s.getId());
-			System.out.println(s.getText());
 			assertTrue(s.getText().toLowerCase().contains("eindhoven"));
 		}
 		Thread.sleep(10000);
-		System.out.println("Tweets size: " + tdh.get().tweets.size());
-		System.out.println("----");
 		for (Status s: tdh.get().tweets){
 			assertTrue(s.getText().toLowerCase().contains("eindhoven"));
 		}
@@ -82,12 +75,11 @@ public class TwitterDataHandlerTest extends ReceiverAdapter {
 	@Test
 	public void test5TweetsInsideTimeWindow() throws InterruptedException{
 		for (Status s: tdh.get().tweets){
-			assertTrue(System.currentTimeMillis() - s.getCreatedAt().getTime() <= (tdh.get().timeWindow*60000+margin));
+			assertTrue(System.currentTimeMillis() - s.getCreatedAt().getTime() <= (tdh.get().timeWindow * 60000 + margin));
 		}
 		Thread.sleep(10000);
 		for (Status s: tdh.get().tweets){
-			System.out.println(s.getCreatedAt());
-			assertTrue(System.currentTimeMillis() - s.getCreatedAt().getTime() <= (tdh.get().timeWindow*60000+margin));
+			assertTrue(System.currentTimeMillis() - s.getCreatedAt().getTime() <= (tdh.get().timeWindow * 60000 + margin));
 		}
 	}
 	
