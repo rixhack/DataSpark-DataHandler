@@ -14,6 +14,7 @@ import twitter4j.Query.ResultType;
 import twitter4j.QueryResult;
 import twitter4j.Status;
 import twitter4j.Twitter;
+import twitter4j.TwitterException;
 import twitter4j.TwitterFactory;
 
 public class TwitterDataHandler extends ReceiverAdapter {
@@ -21,7 +22,7 @@ public class TwitterDataHandler extends ReceiverAdapter {
 	JChannel channel; // Channel for communicating with the processing library.
 	private Twitter twitter; // Object to request twitter data.
 	String query; // Query to send to the Twitter API.
-	int pValue;	// Number of recent tweets matching the query. This value is sent to the processing sketch.
+	int pValue = 0;	// Number of recent tweets matching the query. This value is sent to the processing sketch.
 	long lastId; // The id of the newest tweet received in the last response from the Twitter API.
 	Calendar fDate; // The first time, tweets created from this date will be retrieved. Default to yesterday.
 	Query tQuery; // Query object
@@ -34,15 +35,23 @@ public class TwitterDataHandler extends ReceiverAdapter {
 	int timeWindow = 5; // The amount of tweets created in the last ~ minutes will be returned. (MAX = 10080 = 7 days.)
 	
 	// Constructor with a given query.
-	public TwitterDataHandler(String query) throws Exception{
+	public TwitterDataHandler(String query) {
 		this.query = query;
 		tQuery = new Query(query);
 		tQuery.setCount(100);
 		tQuery.setResultType(Query.RECENT);
 		twitter = TwitterFactory.getSingleton();
-		twitter.getOAuth2Token(); // Request bearer token to the Twitter API.
+		try {
+			twitter.getOAuth2Token();
+		} catch (Exception e) {
+			// e.printStackTrace(); // Request bearer token to the Twitter API.
+		} 
 		tweets = new ArrayList<Status>();
-		start(); // Open a communication channel and wait for a message from a processing script.
+		try {
+			start(); // Open a communication channel and wait for a message from a processing script.
+		} catch (Exception e) {
+			e.printStackTrace();
+		} 
 	}
 	
 	public static void main(String[] args) throws Exception{
@@ -189,7 +198,7 @@ public class TwitterDataHandler extends ReceiverAdapter {
 				}
 				tweets.addAll(tweets.size(), pageTweets);
 			}
-			if (done == 0){
+			if (done == 0 && !tweets.isEmpty()){
 				System.out.println("Current size: "+tweets.size());
 				System.out.println("Current last: "+tweets.get(tweets.size()-1).getCreatedAt());
 				System.out.println("Be persistent!");
@@ -198,7 +207,9 @@ public class TwitterDataHandler extends ReceiverAdapter {
 				newQuery.setCount(100);
 				newQuery.setResultType(ResultType.recent);
 				newQuery.setSince(tQuery.getSince());
-				newQuery.setMaxId(tweets.get(tweets.size()-1).getId()-1);
+				if(!tweets.isEmpty()){
+					newQuery.setMaxId(tweets.get(tweets.size()-1).getId()-1);
+				}
 				QueryResult qrn2 = twitter.search(newQuery);
 				List<Status> nextPageTweets = new ArrayList<Status>();
 				for (Status s: qrn2.getTweets()){
